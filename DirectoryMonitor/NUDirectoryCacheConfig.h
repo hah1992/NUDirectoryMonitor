@@ -78,5 +78,6 @@ typedef NS_OPTIONS(NSInteger, NUDirectoryChangeEvent) {
 @property(nonatomic, assign) NSTimeInterval cacheAge;
 // 两次监测的时间间隔，单位：s
 @property(nonatomic, assign) NSTimeInterval monitorTimeInterval;
-
+// 待删除url过滤器
+@property(nonatomic, copy) BOOL (^filter)(NSURL *url);
 @end

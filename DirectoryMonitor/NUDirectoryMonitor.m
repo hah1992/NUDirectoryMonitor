@@ -88,7 +88,9 @@
             if (eventTypes & DISPATCH_VNODE_WRITE) {
                 [self autoCleanDirectoryCache:path withConfig:config];
             }
-            
+            if (!block) {
+                return;
+            }
             [self notifyEventsChange:eventTypes withConfig:config changeBlock:block];
         });
         
@@ -106,8 +108,13 @@
 
 - (void)autoCleanDirectoryCache:(NSString *)path withConfig:(NUDirectoryCacheConfig *)config {
     
-//    NSTimeInterval lastTime = [BHSettings lasMonitorDirectoryCacheTimeSince1970AtPath:path];
-    NSTimeInterval lastTime = 0;
+    NSArray *directoryList = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+    if (directoryList.count == 0) {
+        return;
+    }
+    NSString *key = [path stringByReplacingOccurrencesOfString:directoryList.lastObject withString:@""];
+    NSTimeInterval lastTime = [NUDirectoryMonitor lasMonitorDirectoryCacheTimeSince1970AtPath:key];
+    
     // 距离上次清除时间间隔太短
     NSTimeInterval interval = [[NSDate date] timeIntervalSince1970] - lastTime;
     if (interval < config.monitorTimeInterval) {
@@ -143,7 +150,10 @@
             // 统计过期的文件
             NSDate *modificationDate = resourceValues[cacheContentKey];
             if ([[modificationDate laterDate:expirationDate] isEqualToDate:expirationDate]) {
-                [urlsToDelete addObject:fileURL];
+                // 未设定filter或者满足filter条件的URL，添加到待删除数组中
+                if (!config.filter || (config.filter && config.filter(fileURL))) {
+                    [urlsToDelete addObject:fileURL];
+                }
                 continue;
             }
             
@@ -169,6 +179,10 @@
                                                                      }];
             // 删除文件
             for (NSURL *fileURL in sortedFiles) {
+                // 忽略不符合filter条件的URL
+                if (config.filter && !config.filter(fileURL)) {
+                    continue;
+                }
                 if ([self.fileManager removeItemAtURL:fileURL error:nil]) {
                     NSDictionary<NSString *, id> *resourceValues = cacheFiles[fileURL];
                     NSNumber *totalAllocatedSize = resourceValues[NSURLTotalFileAllocatedSizeKey];
@@ -190,12 +204,17 @@
                                                                          return [obj1[cacheContentKey] compare:obj2[cacheContentKey]];
                                                                      }];
             for (NSUInteger i = 0; i < sortedFiles.count - config.limiteFileCount/2; i ++) {
+                NSURL *fileURL = [sortedFiles objectAtIndex:i];
+                // 忽略不符合filter条件的URL
+                if (config.filter && !config.filter(fileURL)) {
+                    continue;
+                }
                 [self.fileManager removeItemAtURL:sortedFiles[i] error:nil];
             }
         }
         
         // 记录当前时间
-//        [BHSettings setMonitorDirectoryCacheTimeSince1970AtPath:path];
+        [NUDirectoryMonitor setMonitorDirectoryCacheTimeSince1970AtPath:key];
     }
 }
 
@@ -254,6 +273,15 @@
     }
     
     return NSURLContentModificationDateKey;
+}
+
++ (NSTimeInterval)lasMonitorDirectoryCacheTimeSince1970AtPath:(NSString *)path {
+    return [[[NSUserDefaults standardUserDefaults] valueForKey:path] doubleValue];
+}
+
++ (void)setMonitorDirectoryCacheTimeSince1970AtPath:(NSString *)path {
+    [[NSUserDefaults standardUserDefaults] setValue:@([[NSDate date] timeIntervalSince1970]) forKey:path];
+    [[NSUserDefaults standardUserDefaults] synchronize];
 }
 
 
